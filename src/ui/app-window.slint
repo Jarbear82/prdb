@@ -1,0 +1,58 @@
+import { Button, VerticalBox, HorizontalBox, LineEdit, TextEdit, ScrollView } from "std-widgets.slint";
+
+export component AppWindow inherits Window {
+    title: "SurrealDB File-Based RDBMS";
+    width: 650px;
+    height: 550px;
+
+    in-out property <string> query-text: "SELECT * FROM person;";
+    in-out property <string> query-result: "Ready. Enter a query or add a sample record.";
+
+    callback execute-query();
+    callback add-sample-record();
+
+    VerticalBox {
+        padding: 16px;
+        spacing: 12px;
+
+        Text {
+            text: "File-Based SurrealDB Graphical RDBMS";
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        HorizontalBox {
+            spacing: 8px;
+            Button {
+                text: "Add Sample Record";
+                clicked => { root.add-sample-record(); }
+            }
+        }
+
+        Text {
+            text: "SurrealQL Query:";
+        }
+
+        LineEdit {
+            text <=> root.query-text;
+            accepted => { root.execute-query(); }
+        }
+
+        Button {
+            text: "Execute Query";
+            clicked => { root.execute-query(); }
+        }
+
+        Text {
+            text: "Query Results / Output:";
+        }
+
+        ScrollView {
+            vertical-stretch: 1;
+            Text {
+                text: root.query-result;
+                wrap: word-wrap;
+            }
+        }
+    }
+}
