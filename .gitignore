@@ -11,3 +11,4 @@
 **/*.rs.bk
 repomix-output.xml
 deleteme.md
+app_db/

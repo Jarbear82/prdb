@@ -1,57 +1,430 @@
-import { Button, VerticalBox, HorizontalBox, LineEdit, TextEdit, ScrollView } from "std-widgets.slint";
+import {
+    Button, VerticalBox, HorizontalBox, LineEdit,
+    ScrollView, ListView, StandardListView, ComboBox,
+    CheckBox, TabWidget, GroupBox, TextEdit
+} from "std-widgets.slint";
+
+export struct TableInfo {
+    name: string,
+}
+
+export struct FieldInfo {
+    name: string,
+    type-name: string,
+    is-optional: bool,
+}
+
+export struct RecordRow {
+    id: string,
+    summary: string,
+}
+
+export struct ViewInfo {
+    name: string,
+    definition: string,
+}
 
 export component AppWindow inherits Window {
-    title: "SurrealDB File-Based RDBMS";
-    width: 650px;
-    height: 550px;
+    title: "Schema-Enforced Graphical RDBMS";
+    preferred-width: 980px;
+    preferred-height: 720px;
+    min-width: 800px;
+    min-height: 600px;
 
-    in-out property <string> query-text: "SELECT * FROM person;";
-    in-out property <string> query-result: "Ready. Enter a query or add a sample record.";
+    // ===== Shared state =====
+    in-out property <[TableInfo]> tables: [];
+    in-out property <int> selected-table-index: -1;
+    in-out property <string> selected-table-name: "";
 
-    callback execute-query();
-    callback add-sample-record();
+    in-out property <[FieldInfo]> fields: [];
+    in-out property <[RecordRow]> records: [];
+    in-out property <[ViewInfo]> views: [];
 
-    VerticalBox {
-        padding: 16px;
+    in-out property <string> status-message: "Ready. Create a SCHEMAFULL table to begin.";
+    in-out property <bool> status-is-error: false;
+
+    // Create Table
+    in-out property <string> new-table-name: "";
+
+    // Add Field
+    in-out property <string> new-field-name: "";
+    in-out property <string> new-field-type: "string";
+    in-out property <bool> new-field-optional: false;
+    in-out property <string> new-field-record-target: "";
+
+    // Create / Edit Record
+    in-out property <string> record-json: "{\n  \"name\": \"\",\n  \"active\": true\n}";
+    in-out property <string> editing-record-id: "";
+
+    // Events
+    in-out property <string> new-event-name: "";
+    in-out property <string> new-event-when: "CREATE";
+    in-out property <string> new-event-then: "";
+
+    // Views
+    in-out property <string> new-view-name: "";
+    in-out property <string> new-view-definition: "SELECT * FROM person WHERE active = true;";
+    in-out property <string> view-result: "";
+
+    // ===== Callbacks =====
+    callback refresh-tables();
+    callback create-table();
+    callback select-table(int);
+    callback refresh-fields();
+    callback add-field();
+    callback refresh-records();
+    callback create-record();
+    callback update-record();
+    callback delete-record(string);
+    callback create-event();
+    callback refresh-views();
+    callback create-view();
+    callback open-view(string);
+    callback clear-status();
+
+    HorizontalBox {
+        padding: 12px;
         spacing: 12px;
 
-        Text {
-            text: "File-Based SurrealDB Graphical RDBMS";
-            font-size: 20px;
-            font-weight: 700;
-        }
-
-        HorizontalBox {
+        // ========== LEFT: Tables ==========
+        VerticalBox {
+            width: 220px;
             spacing: 8px;
+
+            Text {
+                text: "Tables (SCHEMAFULL)";
+                font-weight: 700;
+                font-size: 16px;
+            }
+
+            HorizontalBox {
+                LineEdit {
+                    text <=> root.new-table-name;
+                    placeholder-text: "new_table_name";
+                    horizontal-stretch: 1;
+                }
+                Button {
+                    text: "Create";
+                    primary: true;
+                    clicked => { root.create-table(); }
+                }
+            }
+
+            ListView {
+                vertical-stretch: 1;
+                for t[idx] in root.tables: Rectangle {
+                    height: 36px;
+                    background: idx == root.selected-table-index ? #3a5f8a : transparent;
+                    border-radius: 4px;
+
+                    HorizontalBox {
+                        padding: 6px;
+                        Text {
+                            text: t.name;
+                            color: idx == root.selected-table-index ? white : #ddd;
+                        }
+                    }
+                    TouchArea {
+                        clicked => { root.select-table(idx); }
+                    }
+                }
+            }
+
             Button {
-                text: "Add Sample Record";
-                clicked => { root.add-sample-record(); }
+                text: "Refresh Tables";
+                clicked => { root.refresh-tables(); }
             }
         }
 
-        Text {
-            text: "SurrealQL Query:";
-        }
+        // ========== RIGHT: Main content ==========
+        VerticalBox {
+            spacing: 10px;
+            horizontal-stretch: 1;
 
-        LineEdit {
-            text <=> root.query-text;
-            accepted => { root.execute-query(); }
-        }
+            // Status bar
+            Rectangle {
+                height: 36px;
+                background: root.status-is-error ? #5c2b2b : #2b3d2b;
+                border-radius: 4px;
+                HorizontalBox {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    alignment: center;
+                    Text {
+                        text: root.status-message;
+                        color: white;
+                        wrap: word-wrap;
+                        horizontal-stretch: 1;
+                    }
+                    Button {
+                        text: "×";
+                        width: 28px;
+                        clicked => { root.clear-status(); }
+                    }
+                }
+            }
 
-        Button {
-            text: "Execute Query";
-            clicked => { root.execute-query(); }
-        }
+            if root.selected-table-name == "": VerticalBox {
+                alignment: center;
+                Text {
+                    text: "Select or create a table to continue";
+                    font-size: 18px;
+                    color: #888;
+                }
+            }
 
-        Text {
-            text: "Query Results / Output:";
-        }
+            if root.selected-table-name != "": TabWidget {
+                vertical-stretch: 1;
 
-        ScrollView {
-            vertical-stretch: 1;
-            Text {
-                text: root.query-result;
-                wrap: word-wrap;
+                // ===== TAB: Schema =====
+                Tab {
+                    title: "Schema";
+                    VerticalBox {
+                        padding: 12px;
+                        spacing: 10px;
+
+                        Text {
+                            text: "Table: " + root.selected-table-name;
+                            font-size: 18px;
+                            font-weight: 700;
+                        }
+
+                        GroupBox {
+                            title: "Fields";
+                            VerticalBox {
+                                spacing: 6px;
+
+                                HorizontalBox {
+                                    LineEdit {
+                                        text <=> root.new-field-name;
+                                        placeholder-text: "field_name";
+                                        horizontal-stretch: 1;
+                                    }
+                                    ComboBox {
+                                        model: ["string", "int", "float", "bool", "datetime", "record"];
+                                        current-value <=> root.new-field-type;
+                                        width: 120px;
+                                    }
+                                    if root.new-field-type == "record": LineEdit {
+                                        text <=> root.new-field-record-target;
+                                        placeholder-text: "target_table";
+                                        width: 120px;
+                                    }
+                                    CheckBox {
+                                        text: "Optional";
+                                        checked <=> root.new-field-optional;
+                                    }
+                                    Button {
+                                        text: "Add Field";
+                                        primary: true;
+                                        clicked => { root.add-field(); }
+                                    }
+                                }
+
+                                ListView {
+                                    height: 180px;
+                                    for f in root.fields: HorizontalBox {
+                                        padding: 4px;
+                                        Text { text: f.name; width: 160px; }
+                                        Text { text: f.type-name; width: 180px; color: #8af; }
+                                        Text { text: f.is-optional ? "optional" : "required"; color: #aaa; }
+                                    }
+                                }
+                            }
+                        }
+
+                        GroupBox {
+                            title: "Events (basic)";
+                            VerticalBox {
+                                spacing: 6px;
+                                HorizontalBox {
+                                    LineEdit {
+                                        text <=> root.new-event-name;
+                                        placeholder-text: "event_name";
+                                        width: 140px;
+                                    }
+                                    ComboBox {
+                                        model: ["CREATE", "UPDATE", "DELETE"];
+                                        current-value <=> root.new-event-when;
+                                        width: 110px;
+                                    }
+                                    LineEdit {
+                                        text <=> root.new-event-then;
+                                        placeholder-text: "THEN statement (e.g. UPDATE ... )";
+                                        horizontal-stretch: 1;
+                                    }
+                                    Button {
+                                        text: "Create Event";
+                                        clicked => { root.create-event(); }
+                                    }
+                                }
+                                Text {
+                                    text: "Example THEN: UPDATE $after SET updated_at = time::now();";
+                                    color: #888;
+                                    font-size: 12px;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ===== TAB: Data (CRUD) =====
+                Tab {
+                    title: "Data";
+                    VerticalBox {
+                        padding: 12px;
+                        spacing: 10px;
+
+                        HorizontalBox {
+                            Text {
+                                text: "Records in " + root.selected-table-name;
+                                font-size: 16px;
+                                font-weight: 600;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                            }
+                            Button {
+                                text: "Refresh";
+                                clicked => { root.refresh-records(); }
+                            }
+                        }
+
+                        // Create / Edit form
+                        GroupBox {
+                            title: root.editing-record-id == "" ? "Create Record (JSON matching schema)" : "Edit Record " + root.editing-record-id;
+                            VerticalBox {
+                                TextEdit {
+                                    text <=> root.record-json;
+                                    min-height: 110px;
+                                    font-family: "monospace";
+                                }
+                                HorizontalBox {
+                                    Button {
+                                        text: root.editing-record-id == "" ? "Create Record" : "Update Record";
+                                        primary: true;
+                                        clicked => {
+                                            if root.editing-record-id == "" {
+                                                root.create-record();
+                                            } else {
+                                                root.update-record();
+                                            }
+                                        }
+                                    }
+                                    if root.editing-record-id != "": Button {
+                                        text: "Cancel Edit";
+                                        clicked => {
+                                            root.editing-record-id = "";
+                                            root.record-json = "{\n  \"name\": \"\",\n  \"active\": true\n}";
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Record list
+                        ListView {
+                            vertical-stretch: 1;
+                            for r in root.records: Rectangle {
+                                height: 48px;
+                                border-radius: 4px;
+                                background: #2a2a2a;
+
+                                HorizontalBox {
+                                    padding: 8px;
+                                    spacing: 12px;
+                                    Text {
+                                        text: r.id;
+                                        width: 200px;
+                                        font-family: "monospace";
+                                        color: #8cf;
+                                    }
+                                    Text {
+                                        text: r.summary;
+                                        horizontal-stretch: 1;
+                                        overflow: elide;
+                                    }
+                                    Button {
+                                        text: "Edit";
+                                        clicked => {
+                                            root.editing-record-id = r.id;
+                                            // User will paste / adjust JSON; in a later iteration we can load full record
+                                            root.record-json = "{\n  // load full record and edit\n}";
+                                        }
+                                    }
+                                    Button {
+                                        text: "Delete";
+                                        clicked => { root.delete-record(r.id); }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ===== TAB: Views =====
+                Tab {
+                    title: "Views";
+                    VerticalBox {
+                        padding: 12px;
+                        spacing: 10px;
+
+                        GroupBox {
+                            title: "Create Read-Only View";
+                            VerticalBox {
+                                HorizontalBox {
+                                    LineEdit {
+                                        text <=> root.new-view-name;
+                                        placeholder-text: "view_name";
+                                        width: 160px;
+                                    }
+                                    Button {
+                                        text: "Create View";
+                                        primary: true;
+                                        clicked => { root.create-view(); }
+                                    }
+                                }
+                                TextEdit {
+                                    text <=> root.new-view-definition;
+                                    min-height: 80px;
+                                    font-family: "monospace";
+                                }
+                                Text {
+                                    text: "Views are stored as DEFINE VIEW and opened read-only.";
+                                    color: #888;
+                                    font-size: 12px;
+                                }
+                            }
+                        }
+
+                        HorizontalBox {
+                            Text { text: "Existing Views"; font-weight: 600; vertical-alignment: center; horizontal-stretch: 1; }
+                            Button { text: "Refresh"; clicked => { root.refresh-views(); } }
+                        }
+
+                        ListView {
+                            height: 140px;
+                            for v in root.views: HorizontalBox {
+                                padding: 6px;
+                                Text { text: v.name; width: 160px; }
+                                Text { text: v.definition; horizontal-stretch: 1; overflow: elide; color: #aaa; }
+                                Button {
+                                    text: "Open (Read-Only)";
+                                    clicked => { root.open-view(v.name); }
+                                }
+                            }
+                        }
+
+                        Text { text: "View Result:"; font-weight: 600; }
+                        ScrollView {
+                            vertical-stretch: 1;
+                            Text {
+                                text: root.view-result;
+                                wrap: word-wrap;
+                                font-family: "monospace";
+                            }
+                        }
+                    }
+                }
             }
         }
     }
